@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>olympiades</title>
+	<link rel="manifest" href="manifest.json">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        body{ font-family:system-ui; background:#F5F3EE; margin:0; padding:18px; display:grid; grid-template-columns:1.6fr 0.9fr; gap:18px }
+        .card-main{ background:#A2A3A0; padding:16px; border-radius:14px }
+        .card-rank{ background:#C9BF0E; padding:16px; border-radius:14px; position:sticky; top:18px; max-height:calc(100vh - 36px); overflow-y:auto }
+        h2{ margin:0 0 12px; color:#2A4B8D; border-bottom:2px solid #0002; padding-bottom:6px }
+        .controls{ display:flex; gap:8px; margin-bottom:12px; flex-wrap: wrap; }
+        .btn{ padding:8px 14px; border:none; border-radius:20px; background:#4A90E2; color:#fff; cursor:pointer }
+        .btn-add{ background:#2ecc71; font-weight: bold; }
+        .btn-del{ background:#d9534f; padding: 4px 10px; font-size: 12px; margin-left: 5px; }
+        
+        /* Alignement du tableau */
+        table{ width:100%; border-collapse:collapse; background:#fff }
+        th{ background:#2A4B8D; color:#fff; padding:10px; text-align: left; }
+        th:nth-child(2), td:nth-child(2) { text-align: center; width: 80px; } /* Colonne Total */
+        th:last-child, td:last-child { text-align: center; width: 120px; } /* Colonne Actions */
+        
+        td{ padding:8px; border-bottom: 1px solid #eee; vertical-align: middle; }
+        tbody tr:nth-child(even){ background:#F0ECE6 }
+        
+        .photo-list{ width:50px; height:50px; border-radius:50%; object-fit:cover; margin-right:12px }
+        .photo-rank{ width:38px; height:38px; border-radius:50%; object-fit:cover; margin-right:6px }
+        .rank-item{ display:flex; justify-content:space-between; align-items:center; padding:6px; border-bottom:1px solid #0002 }
+        .rank-medal{ width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold }
+        .gold{background:#FFD700} .silver{background:#C0C0C0} .bronze{background:#CD7F32} .normal{background:#4A90E2;color:#fff}
+        
+        .modal{ display:none; position:fixed; left:0; top:0; width:100%; height:100%; background:#0005; backdrop-filter:blur(3px); z-index: 1000; }
+        .modal-content{ background:#fff; width:90%; max-width:450px; margin:5% auto; padding:20px; border-radius:14px }
+        .photo-modal{ width:120px; height:120px; border-radius:12px; object-fit:cover; margin-bottom:10px }
+        .epreuve-grid{ display:grid; grid-template-columns:1fr 0.6fr; gap:6px; max-height:300px; overflow-y:auto }
+        .actions-cell { display: flex; align-items: center; justify-content: center; gap: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="card-main">
+    <h2>OLYMPIADES AQUARÉLIA NOYAL / CHATILLON</h2>
+    <div class="controls">
+        <input id="srch" placeholder="Rechercher..." onkeyup="aff()" style="flex:1; padding:8px; border-radius:20px; border:1px solid #ccc;">
+        <button class="btn btn-add" onclick="ajouterResident()">+ Ajouter Résident</button>
+        <button class="btn" onclick="configEpreuves()">Épreuves</button>
+        <button class="btn" style="background:#f39c12" onclick="razScores()">RAZ Scores</button>
+        <button class="btn" style="background:#d9534f" onclick="viderListe()">Tout Effacer</button>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Résident</th>
+                <th>Total</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="tbl"></tbody>
+    </table>
+</div>
+
+<div class="card-rank">
+    <h2>Classement</h2>
+    <div id="rk"></div>
+    <button class="btn" style="width:100%; margin-top:15px; background:#2A4B8D" onclick="exportRankPDF()">📄 Exporter Classement PDF</button>
+</div>
+
+<div id="modalSaisie" class="modal">
+    <div class="modal-content">
+        <h3 id="modalTitle"></h3>
+        <img id="photoPreview" class="photo-modal">
+        <div class="controls">
+            <button class="btn" onclick="document.getElementById('fileInput').click()">Changer Photo</button>
+        </div>
+        <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="importPhoto(event)">
+        <div id="epreuveFields" class="epreuve-grid" style="margin-top:15px"></div>
+        <button class="btn" style="margin-top:15px; width:100%; background:#2ecc71" onclick="closeModal()">Enregistrer</button>
+    </div>
+</div>
+
+<script>
+let names = JSON.parse(localStorage.getItem('ep_names')) || Array.from({length: 12}, (_, i) => "Épreuve " + (i + 1));
+let d = JSON.parse(localStorage.getItem('data_80_final')) || [];
+let curId = null;
+
+function save() {
+    localStorage.setItem('ep_names', JSON.stringify(names));
+    localStorage.setItem('data_80_final', JSON.stringify(d));
+}
+
+function totalPoints(j) { return j.p.reduce((a, b) => a + b, 0); }
+
+function ajouterResident() {
+    let nom = prompt("Nom du nouveau résident :");
+    if (nom && nom.trim() !== "") {
+        d.push({ id: Date.now(), n: nom.trim(), p: Array(12).fill(0), photo: "" });
+        save(); aff();
+    }
+}
+
+function supprimerResident(id) {
+    if (confirm("Supprimer ce résident ?")) {
+        d = d.filter(x => x.id !== id);
+        save(); aff();
+    }
+}
+
+function viderListe() {
+    if (confirm("⚠️ Voulez-vous supprimer TOUS les résidents et leurs photos ?")) {
+        d = []; save(); aff();
+    }
+}
+
+function aff() {
+    let q = document.getElementById('srch').value.toLowerCase();
+    let b = document.getElementById('tbl');
+    b.innerHTML = d.length === 0 ? "<tr><td colspan='3' style='text-align:center;padding:20px;'>Aucun inscrit. Cliquez sur Ajouter.</td></tr>" : "";
+
+    d.forEach(j => {
+        if (!j.n.toLowerCase().includes(q)) return;
+        b.innerHTML += `<tr>
+            <td onclick="rename(${j.id})" style="cursor:pointer;display:flex;align-items:center">
+                <img src="${j.photo || 'https://via.placeholder.com/50'}" class="photo-list">
+                <b>${j.n}</b>
+            </td>
+            <td><b>${totalPoints(j)}</b></td>
+            <td>
+                <div class="actions-cell">
+                    <button class="btn" onclick="openSaisie(${j.id})">Points</button>
+                    <button class="btn btn-del" onclick="supprimerResident(${j.id})">❌</button>
+                </div>
+            </td>
+        </tr>`;
+    });
+
+    let r = document.getElementById('rk');
+    r.innerHTML = "";
+    [...d].sort((a, b) => totalPoints(b) - totalPoints(a)).forEach((j, i) => {
+        let m = i == 0 ? "gold" : i == 1 ? "silver" : i == 2 ? "bronze" : "normal";
+        r.innerHTML += `<div class="rank-item">
+            <div style="display:flex;align-items:center"><div class="rank-medal ${m}">${i+1}</div>
+            <img src="${j.photo || 'https://via.placeholder.com/40'}" class="photo-rank"> ${j.n}</div>
+            <b>${totalPoints(j)} pts</b>
+        </div>`;
+    });
+}
+
+function openSaisie(id) {
+    curId = id;
+    let j = d.find(x => x.id == id);
+    document.getElementById('modalTitle').innerText = j.n;
+    document.getElementById('photoPreview').src = j.photo || "https://via.placeholder.com/120";
+    let c = document.getElementById('epreuveFields');
+    c.innerHTML = "";
+    names.forEach((n, i) => {
+        c.innerHTML += `<span>${n}</span><input type="number" value="${j.p[i]}" onchange="updVal(${i},this.value)" style="width:60px; padding:4px;">`;
+    });
+    document.getElementById('modalSaisie').style.display = "block";
+}
+
+function updVal(indexEp, v) {
+    let j = d.find(x => x.id == curId);
+    if(j) j.p[indexEp] = parseInt(v) || 0;
+    save();
+}
+
+function importPhoto(e) {
+    let f = e.target.files[0];
+    if (!f) return;
+    let r = new FileReader();
+    r.onload = x => {
+        let j = d.find(x => x.id == curId);
+        if(j) j.photo = x.target.result;
+        save(); aff();
+        document.getElementById('photoPreview').src = x.target.result;
+    };
+    r.readAsDataURL(f);
+}
+
+function closeModal() { document.getElementById('modalSaisie').style.display = "none"; aff(); }
+
+function rename(id) {
+    let j = d.find(x => x.id == id);
+    let n = prompt("Modifier le nom :", j.n);
+    if (n) { j.n = n; save(); aff(); }
+}
+
+function configEpreuves() {
+    for (let i = 0; i < 12; i++) {
+        let n = prompt("Nom de l'épreuve " + (i + 1) + " :", names[i]);
+        if (n) names[i] = n;
+    }
+    save(); aff();
+}
+
+function razScores() {
+    if (confirm("Remettre les scores à 0 ? (Garde noms et photos)")) {
+        d.forEach(j => j.p = Array(12).fill(0));
+        save(); aff();
+    }
+}
+
+function exportRankPDF() {
+    const area = document.createElement('div');
+    area.style.padding = "20px";
+    area.style.background = "white";
+    
+    let rows = [...d].sort((a, b) => totalPoints(b) - totalPoints(a)).map((j, i) => {
+        let medal = i == 0 ? "🥇" : i == 1 ? "🥈" : i == 2 ? "🥉" : i + 1;
+        return `<tr>
+            <td style="padding:10px; border-bottom:1px solid #ddd;"><b>${medal}</b></td>
+            <td style="padding:10px; border-bottom:1px solid #ddd;"><img src="${j.photo || 'https://via.placeholder.com/40'}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;"></td>
+            <td style="padding:10px; border-bottom:1px solid #ddd;">${j.n}</td>
+            <td style="padding:10px; border-bottom:1px solid #ddd; text-align:right;"><b>${totalPoints(j)} pts</b></td>
+        </tr>`;
+    }).join('');
+
+    area.innerHTML = `
+        <h1 style="text-align:center; color:#2A4B8D; font-family:sans-serif;">🏆 Classement Actuel NOYAL / CHATILLON</h1>
+        <table style="width:100%; border-collapse:collapse; font-family:sans-serif;">
+            <thead style="background:#2A4B8D; color:white;">
+                <tr><th style="padding:10px;text-align:left">Rang</th><th>Photo</th><th style="text-align:left">Nom</th><th style="text-align:right">Score</th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+
+    html2pdf().set({
+        margin: 10,
+        filename: 'classement_aquarelia.pdf',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    }).from(area).save();
+}
+
+aff();
+</script>
+</body>
+</html>
