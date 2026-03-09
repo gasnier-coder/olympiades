@@ -47,6 +47,8 @@
         <button class="btn" onclick="configEpreuves()">Épreuves</button>
         <button class="btn" style="background:#f39c12" onclick="razScores()">RAZ Scores</button>
         <button class="btn" style="background:#d9534f" onclick="viderListe()">Tout Effacer</button>
+		<button class="btn" style="background:#673ab7" onclick="exporterDonnees()">Exporter</button>
+<button class="btn" style="background:#607d8b" onclick="importerDonnees()">Importer</button>
     </div>
     <table>
         <thead>
@@ -235,6 +237,46 @@ function exportRankPDF() {
 }
 
 aff();
+function exporterDonnees() {
+    const backup = {
+        ep_names: JSON.parse(localStorage.getItem('ep_names')),
+        data_80_final: JSON.parse(localStorage.getItem('data_80_final'))
+    };
+    const blob = new Blob([JSON.stringify(backup)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'sauvegarde_olympiades.json';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function importerDonnees() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = e => {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        reader.onload = event => {
+            try {
+                const res = JSON.parse(event.target.result);
+                if(res.ep_names && res.data_80_final) {
+                    localStorage.setItem('ep_names', JSON.stringify(res.ep_names));
+                    localStorage.setItem('data_80_final', JSON.stringify(res.data_80_final));
+                    alert("Importation réussie ! L'appli va redémarrer.");
+                    location.reload();
+                } else {
+                    alert("Le fichier ne semble pas contenir les bonnes données.");
+                }
+            } catch (err) {
+                alert("Erreur de lecture du fichier.");
+            }
+        };
+        reader.readAsText(file);
+    };
+    input.click();
+}
 </script>
 </body>
 </html>
